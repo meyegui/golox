@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"os"
 	"strings"
 )
@@ -10,6 +11,11 @@ type field struct {
 	Name string
 	Type string
 }
+
+var TPL_ACCEPT_VISITOR_FUNC = //
+`func ({{.r}} *{{.rType}}) Accept({{.v}} {{.vType}}) {
+	{{.v}}.Visit{{.rType}}({{.r}})
+}`
 
 func main() {
 	args := os.Args[1:]
@@ -22,7 +28,7 @@ func main() {
 	defineAst(outputDir, "Expr", map[string][]field{
 		"Binary": {
 			{"Left", "Expr"},
-			{"Operator", "scanner.Token"},
+			{"Operator", "*scanner.Token"},
 			{"Right", "Expr"},
 		},
 		"Grouping": {
@@ -32,7 +38,7 @@ func main() {
 			{"Value", "any"},
 		},
 		"Unary": {
-			{"Operator", "scanner.Token"},
+			{"Operator", "*scanner.Token"},
 			{"Right", "Expr"},
 		},
 	})
@@ -53,13 +59,43 @@ func defineAst(outputDir string, interfaceName string, definitions map[string][]
 
 type %s interface {
 	is%s()
+	Accept(v %sVisitor)
 }
 `,
 		packageName,
 		interfaceName,
 		interfaceName,
+		interfaceName,
 	)), 0o644)
 
+	// Create the visitor interface
+	func() {
+		filename = outputDir + "/" + strings.ToLower(interfaceName) + "_" + "visitor.go"
+		file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+
+		fmt.Fprintln(file, "package", packageName)
+		fmt.Fprintln(file)
+
+		fmt.Fprintln(file, "type", interfaceName+"Visitor", "interface {")
+
+		for typeName := range definitions {
+			fmt.Fprintf(
+				file,
+				"\tVisit%s(%s *%s)\n",
+				typeName,
+				strings.ToLower(string(typeName[0])),
+				typeName,
+			)
+		}
+
+		fmt.Fprintln(file, "}")
+	}()
+
+	// Create the structs
 	for typeName, fields := range definitions {
 		func() {
 			// Create or open file in "overwrite" mode
@@ -123,6 +159,18 @@ type %s interface {
 				typeName,
 				interfaceName,
 			)
+
+			// Write out visitor implementation, i.e. accept() method
+			fmt.Fprintln(file)
+			template.
+				Must(template.New("").Parse(TPL_ACCEPT_VISITOR_FUNC)).
+				Execute(file, map[string]any{
+					"r":     strings.ToLower(string(typeName[0])),
+					"rType": typeName,
+					"v":     strings.ToLower(string(interfaceName[0])) + "v",
+					"vType": interfaceName + "Visitor",
+				})
+			fmt.Fprintln(file)
 		}()
 	}
 }
@@ -130,12 +178,13 @@ type %s interface {
 func getImports(fields []field) []string {
 	imports := make([]string, 0)
 	for _, f := range fields {
-		index := strings.IndexByte(f.Type, '.')
-		if index == -1 {
+		star := strings.IndexByte(f.Type, '*')
+		dot := strings.IndexByte(f.Type, '.')
+		if dot == -1 {
 			continue
 		}
 
-		imports = append(imports, f.Type[:index])
+		imports = append(imports, f.Type[star+1:dot])
 	}
 
 	return imports

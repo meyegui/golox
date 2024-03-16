@@ -5,3 +5,7 @@ type Grouping struct {
 }
 
 func (g Grouping) isExpr() {}
+
+func (g *Grouping) Accept(ev ExprVisitor) {
+	ev.VisitGrouping(g)
+}

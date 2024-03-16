@@ -5,3 +5,7 @@ type Literal struct {
 }
 
 func (l Literal) isExpr() {}
+
+func (l *Literal) Accept(ev ExprVisitor) {
+	ev.VisitLiteral(l)
+}
